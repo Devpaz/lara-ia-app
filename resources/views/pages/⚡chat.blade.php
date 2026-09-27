@@ -28,7 +28,18 @@ new class extends Component {
 
                 if ($message->role === 'user') {
                     $decoded = json_decode($message->attachments, true) ?: [];
-                    $meta = json_decode($decoded[0]['name'] ?? '', true);
+                    $meta = ($decoded[0]['type'] ?? null) === 'stored-document' || ($decoded[0]['type'] ?? null) === 'stored-image'
+                        ? [
+                            'path' => $decoded[0]['path'] ?? null,
+                            'name' => $decoded[0]['name'] ?? null,
+                            'mime' => match (strtolower(pathinfo($decoded[0]['path'] ?? '', PATHINFO_EXTENSION))) {
+                                'png' => 'image/png',
+                                'jpg', 'jpeg' => 'image/jpeg',
+                                default => 'application/pdf',
+                            },
+                            'disk' => $decoded[0]['disk'] ?? null,
+                        ]
+                        : json_decode($decoded[0]['name'] ?? '', true);
 
                     if (is_array($meta)) {
                         $attachment = $meta;
@@ -42,6 +53,7 @@ new class extends Component {
                     'attachment_path' => $attachment['path'] ?? null,
                     'attachment_name' => $attachment['name'] ?? null,
                     'attachment_mime' => $attachment['mime'] ?? null,
+                    'attachment_disk' => $attachment['disk'] ?? 'local',
                 ];
             })
             ->all();

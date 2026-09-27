@@ -5,6 +5,7 @@ use Livewire\Component;
 use App\Ai\Agents\ChatAgent;
 use Livewire\Attributes\On;
 use Livewire\WithFileUploads;
+use Illuminate\Support\Facades\Crypt;
 
 new class extends Component {
     use WithFileUploads;
@@ -38,17 +39,21 @@ new class extends Component {
         $this->input = '';
         $this->loading = true;
 
-        // Handle Attachment - store permanently so StreamController can read it
-
+        // Keep attachments on the S3 disk so conversation history can read them again.
         $attachmentPath = null;
         $attachmentName = null;
         $attachmentMime = null;
+        $attachmentToken = null;
 
         if ($this->attachment) {
-            $path = $this->attachment->store('chat-attachments', 'local');
-            $attachmentPath = Storage::disk('local')->path($path);
+            $attachmentPath = $this->attachment->store('chat-attachments', 's3');
             $attachmentMime = $this->attachment->getMimeType();
             $attachmentName = $this->attachment->getClientOriginalName();
+            $attachmentToken = Crypt::encrypt([
+                'path' => $attachmentPath,
+                'mime' => $attachmentMime,
+                'expires_at' => now()->addMinutes(10)->timestamp,
+            ]);
             $this->attachment = null;
         }
 
@@ -56,6 +61,10 @@ new class extends Component {
         $this->messages[] = [
             'role' => 'user',
             'content' => $userMessage ?: $attachmentName,
+            'attachment_path' => $attachmentPath,
+            'attachment_mime' => $attachmentMime,
+            'attachment_name' => $attachmentName,
+            'attachment_disk' => $attachmentPath ? 's3' : null,
         ];
 
         try {
@@ -69,7 +78,7 @@ new class extends Component {
             ];
 
             // Dispatch browser event to start streaming
-            $this->dispatch('start-stream', message: $userMessage, attachmentPath: $attachmentPath, attachmentMime: $attachmentMime);
+            $this->dispatch('start-stream', message: $userMessage, attachmentToken: $attachmentToken);
         } catch (Throwable $e) {
             report($e);
 
@@ -172,7 +181,7 @@ new class extends Component {
                         @if (!empty($message['attachment_path'] ?? null))
                             @php
                                 $isImage = str_starts_with($message['attachment_mime'] ?? '', 'image/');
-                                $attachmentUrl = \Illuminate\Support\Facades\Storage::disk('local')->temporaryUrl(
+                                $attachmentUrl = \Illuminate\Support\Facades\Storage::disk($message['attachment_disk'] ?? 'local')->temporaryUrl(
                                     $message['attachment_path'],
                                     now()->addMinutes(30),
                                 );
@@ -449,10 +458,9 @@ new class extends Component {
             init() {
                 this.$wire.on('start-stream', ({
                     message,
-                    attachmentPath,
-                    attachmentMime
+                    attachmentToken
                 }) => {
-                    this.startStream(message, attachmentPath, attachmentMime);
+                    this.startStream(message, attachmentToken);
                 });
 
                 // Listening event
@@ -471,12 +479,9 @@ new class extends Component {
             },
 
             // Function start streaming
-            async startStream(message, attachmentPath = null, attachmentMime = null) {
+            async startStream(message, attachmentToken = null) {
                 this.streamingText = '';
                 this.hasStartedStreaming = false;
-
-                console.log('Sending conversation id: ', this.conversationId, ' and attachment ',
-                    attachmentPath);
 
                 try {
                     const response = await fetch('{{ route('chat.stream') }}', {
@@ -490,10 +495,13 @@ new class extends Component {
                         body: JSON.stringify({
                             message: message,
                             conversation_id: this.conversationId,
-                            attachment_path: attachmentPath,
-                            attachment_mime: attachmentMime,
+                            attachment_token: attachmentToken,
                         }),
                     });
+
+                    if (!response.ok) {
+                        throw new Error(`Stream request failed: ${response.status}`);
+                    }
 
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
