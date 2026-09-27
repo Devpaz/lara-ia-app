@@ -1,42 +1,57 @@
 <?php
+
 namespace App\Http\Controllers;
 
 use App\Ai\Agents\ChatAgent;
-use GuzzleHttp\Exception\RequestException as ExceptionRequestException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Laravel\Ai\Exceptions\RateLimitedException;
 use Laravel\Ai\Files;
 use Laravel\Ai\Streaming\Events\TextDelta;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class StreamController extends Controller
 {
-    public function __invoke(Request $request)
+    public function __invoke(Request $request): StreamedResponse
     {
         set_time_limit(0);
 
         $request->validate([
-            'message'         => ['nullable', 'string', 'max: 2000'],
+            'message' => ['required_without:attachment_token', 'nullable', 'string', 'max:2000'],
             'conversation_id' => ['nullable', 'string'],
-            'attachment_path' => ['nullable', 'string'],
-            'attachment_mime' => ['nullable', 'string'],
+            'attachment_token' => ['nullable', 'string'],
         ]);
 
-        $message        = $request->input('message');
+        $message = $request->input('message') ?? '';
         $conversationId = $request->input('conversation_id');
-        $attachmentPath = $request->input('attachment_path');
-        $attachmentMime = $request->input('attachment_mime');
+        $attachment = null;
 
-        Log::debug($attachmentMime . " " . $attachmentPath);
+        if ($request->filled('attachment_token')) {
+            try {
+                $attachment = Crypt::decrypt($request->string('attachment_token')->toString());
+            } catch (\Throwable) {
+                throw ValidationException::withMessages(['attachment_token' => 'Invalid attachment. Please upload it again.']);
+            }
 
-        Log::debug('AI stream conversation returned', [
-            'conversation_id' => $conversationId,
-        ]);
+            if (! is_array($attachment)
+                || ! is_string($attachment['path'] ?? null)
+                || ! str_starts_with($attachment['path'], 'chat-attachments/')
+                || ! is_string($attachment['mime'] ?? null)
+                || ! in_array($attachment['mime'], ['application/pdf', 'image/png', 'image/jpeg'], true)
+                || ! is_int($attachment['expires_at'] ?? null)
+                || $attachment['expires_at'] < now()->timestamp
+                || ! Storage::disk('s3')->exists($attachment['path'])) {
+                throw ValidationException::withMessages(['attachment_token' => 'Attachment expired or unavailable. Please upload it again.']);
+            }
+        }
 
-        return response()->stream(function () use ($message, $conversationId, $attachmentPath, $attachmentMime) {
+        return response()->stream(function () use ($message, $conversationId, $attachment) {
 
             try {
-                $agent       = new ChatAgent();
+                $agent = new ChatAgent;
                 $participant = (object) ['id' => 'guest'];
 
                 if ($conversationId) {
@@ -45,74 +60,57 @@ class StreamController extends Controller
                     $agent->forUser($participant);
                 }
 
-                // Build attachment array
                 $attachments = [];
 
-                if ($attachmentPath && file_exists($attachmentPath)) {
-                    $attachments[] = str_starts_with($attachmentMime, 'image/') ? Files\Image::fromPath($attachmentPath) : Files\Document::fromPath($attachmentPath);
+                if ($attachment !== null) {
+                    $attachments[] = str_starts_with($attachment['mime'], 'image/')
+                        ? Files\Image::fromStorage($attachment['path'], disk: 's3')->withMimeType($attachment['mime'])
+                        : Files\Document::fromStorage($attachment['path'], disk: 's3')->withMimeType($attachment['mime']);
                 }
-
-                \Log::debug($attachments);
 
                 $stream = $agent->stream($message, attachments: $attachments, timeout: 120);
 
                 foreach ($stream as $event) {
                     if ($event instanceof TextDelta) {
-                        echo 'data: ' . json_encode([
+                        echo 'data: '.json_encode([
                             'content' => $event->delta,
-                        ]) . "\n\n";
+                        ])."\n\n";
 
                         ob_flush();
                         flush();
                     }
                 }
 
-                // Clean up the temp attachment file after use
-                if ($attachmentPath && file_exists($attachmentPath)) {
-                    @unlink($attachmentPath);
-                }
-
-                $stream->then(function ($response) use ($attachmentPath) {
+                $stream->then(function ($response) {
 
                     Log::debug('AI stream conversation returned', [
                         'Response Conversation Id' => $response->conversationId,
                     ]);
 
-                    echo 'data: ' . json_encode([
+                    echo 'data: '.json_encode([
                         'conversation_id' => $response->conversationId,
-                    ]) . "\n\n";
+                    ])."\n\n";
 
                     ob_flush();
                     flush();
                 });
 
-            } catch (ExceptionRequestException $e) {
-                Log::error('Gemini request failed', [
-                    'status' => $e->response?->status(),
-                    'body'   => $e->response?->body(),
-                ]);
-
-                echo 'data: ' . json_encode([
-                    'error' => 'Gemini request failed. Check the Laravel log.',
-                ]) . "\n\n";
-
             } catch (RateLimitedException $e) {
                 $previous = $e->getPrevious();
 
                 Log::warning('Gemini rate limited', [
-                    'body'        => $previous?->response?->body(),
-                    'retry_after' => $previous?->response?->header('Retry-After'),
+                    'error' => $previous?->getMessage() ?? $e->getMessage(),
                 ]);
 
-                echo 'data: ' . json_encode([
+                echo 'data: '.json_encode([
                     'error' => 'Gemini is temporarily rate limited. Please retry shortly.',
-                ]) . "\n\n";
+                ])."\n\n";
             } catch (\Throwable $e) {
                 report($e);
 
-                echo 'data: ' . json_encode([
+                echo 'data: '.json_encode([
                     'error' => 'Something went wrong. Please try again!',
-                ]) . "\n\n";
+                ])."\n\n";
             }
 
             echo "data: [DONE]\n\n";
@@ -120,11 +118,10 @@ class StreamController extends Controller
             flush();
 
         }, 200, [
-            'Content-Type'      => 'text/event-stream',
-            'Cache-Control'     => 'no-cache',
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache',
             'X-Accel-Buffering' => 'no',
         ]);
 
-        // ->prompt($userMessage);
     }
 }
