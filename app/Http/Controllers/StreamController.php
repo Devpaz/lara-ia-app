@@ -46,6 +46,7 @@ class StreamController extends Controller
                 || ! str_starts_with($attachment['path'], 'chat-attachments/')
                 || ! is_string($attachment['mime'] ?? null)
                 || ! in_array($attachment['mime'], ['application/pdf', 'image/png', 'image/jpeg'], true)
+                || (string) ($attachment['user_id'] ?? '') !== (string) $participant->getKey()
                 || ! is_int($attachment['expires_at'] ?? null)
                 || $attachment['expires_at'] < now()->timestamp
                 || ! Storage::disk('s3')->exists($attachment['path'])) {
@@ -93,6 +94,11 @@ class StreamController extends Controller
 
                     echo 'data: '.json_encode([
                         'conversation_id' => $response->conversationId,
+                        'usage' => [
+                            'input_tokens' => $response->usage->inputTokens,
+                            'output_tokens' => $response->usage->outputTokens,
+                            'total_tokens' => $response->usage->totalTokens(),
+                        ],
                     ])."\n\n";
 
                     ob_flush();

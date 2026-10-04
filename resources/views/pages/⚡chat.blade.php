@@ -30,6 +30,7 @@ new class extends Component {
             ->get()
             ->map(function ($message) {
                 $attachment = null;
+                $usage = json_decode($message->usage, true) ?: [];
 
                 if ($message->role === 'user') {
                     $decoded = json_decode($message->attachments, true) ?: [];
@@ -59,6 +60,8 @@ new class extends Component {
                     'attachment_name' => $attachment['name'] ?? null,
                     'attachment_mime' => $attachment['mime'] ?? null,
                     'attachment_disk' => $attachment['disk'] ?? 'local',
+                    'input_tokens' => (int) ($usage['input_tokens'] ?? 0),
+                    'output_tokens' => (int) ($usage['output_tokens'] ?? 0),
                 ];
             })
             ->all();

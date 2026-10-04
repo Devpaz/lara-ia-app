@@ -52,6 +52,7 @@ new class extends Component {
             $attachmentToken = Crypt::encrypt([
                 'path' => $attachmentPath,
                 'mime' => $attachmentMime,
+                'user_id' => auth()->id(),
                 'expires_at' => now()->addMinutes(10)->timestamp,
             ]);
             $this->attachment = null;
@@ -102,7 +103,7 @@ new class extends Component {
     }
 
     #[On('stream-complete')]
-    public function onStreamComplete(string $content)
+    public function onStreamComplete(string $content, array $usage = []): void
     {
         $lastIndex = array_key_last($this->messages);
 
@@ -110,6 +111,8 @@ new class extends Component {
             'role' => 'assistant',
             'content' => $content,
             'streaming' => false,
+            'input_tokens' => (int) ($usage['input_tokens'] ?? 0),
+            'output_tokens' => (int) ($usage['output_tokens'] ?? 0),
         ];
         $this->loading = false;
     }
@@ -242,6 +245,16 @@ new class extends Component {
                             <div class="max-w-md lg:max-w-2xl">
                                 <span class="markdown-body"
                                     x-html="renderMarkdown(@js($message['content']))"></span>
+                            </div>
+                        @endif
+
+                        @if (!($message['streaming'] ?? false) && (($message['input_tokens'] ?? 0) > 0 || ($message['output_tokens'] ?? 0) > 0))
+                            <div class="mt-2 border-t border-zinc-700/60 pt-2 text-[10px] text-zinc-500">
+                                <span class="text-sky-400">{{ number_format($message['input_tokens']) }}</span> input
+                                <span class="px-1">·</span>
+                                <span class="text-violet-400">{{ number_format($message['output_tokens']) }}</span> output
+                                <span class="px-1">·</span>
+                                {{ number_format($message['input_tokens'] + $message['output_tokens']) }} total
                             </div>
                         @endif
                     </div>
@@ -453,6 +466,7 @@ new class extends Component {
         Alpine.data('chatStream', () => ({
             streamingText: '',
             hasStartedStreaming: false,
+            tokenUsage: null,
             conversationId: @js($conversationId),
 
             init() {
@@ -468,6 +482,7 @@ new class extends Component {
                     this.conversationId = null;
                     this.streamingText = '';
                     this.hasStartedStreaming = false;
+                    this.tokenUsage = null;
                 });
 
                 // Scroll to bottom
@@ -482,6 +497,7 @@ new class extends Component {
             async startStream(message, attachmentToken = null) {
                 this.streamingText = '';
                 this.hasStartedStreaming = false;
+                this.tokenUsage = null;
 
                 try {
                     const response = await fetch('{{ route('chat.stream') }}', {
@@ -534,7 +550,10 @@ new class extends Component {
                             if (data === '[DONE]') {
                                 this.$wire.dispatch('stream-complete', {
                                     content: this.streamingText,
+                                    usage: this.tokenUsage ?? {},
                                 });
+
+                                Livewire.dispatch('usage-updated');
 
                                 return;
                             }
@@ -563,6 +582,10 @@ new class extends Component {
                                     console.log('Stored conversation id: ', this.conversationId);
                                 }
 
+                                if (parsed.usage) {
+                                    this.tokenUsage = parsed.usage;
+                                }
+
                                 if (parsed.error) {
                                     this.$wire.dispatch('stream-error');
                                     return;
@@ -576,7 +599,10 @@ new class extends Component {
 
                     this.$wire.dispatch('stream-complete', {
                         content: this.streamingText,
+                        usage: this.tokenUsage ?? {},
                     });
+
+                    Livewire.dispatch('usage-updated');
 
                 } catch (error) {
                     console.error(error);

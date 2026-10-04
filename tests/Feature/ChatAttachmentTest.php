@@ -37,7 +37,7 @@ test('a chat upload stays available to subsequent turns', function () {
     ])->assertOk();
 
     $content = $first->streamedContent();
-    expect($content)->toContain('"content":"Document"', '"content":" received."', 'conversation_id');
+    expect($content)->toContain('"content":"Document"', '"content":" received."', 'conversation_id', '"usage"', '"input_tokens"', '"output_tokens"');
 
     $conversationId = DB::table('agent_conversations')->value('id');
     $storedAttachment = json_decode(DB::table('agent_conversation_messages')->where('role', 'user')->value('attachments'), true)[0];
@@ -57,7 +57,8 @@ test('a chat upload stays available to subsequent turns', function () {
 });
 
 test('the stream rejects an untrusted or expired attachment reference', function () {
-    $this->actingAs(User::factory()->create());
+    $user = User::factory()->create();
+    $this->actingAs($user);
 
     Storage::fake('s3');
     Storage::disk('s3')->put('chat-attachments/report.pdf', '%PDF-1.4 test document');
@@ -73,11 +74,42 @@ test('the stream rejects an untrusted or expired attachment reference', function
         'attachment_token' => Crypt::encrypt([
             'path' => 'chat-attachments/report.pdf',
             'mime' => 'application/pdf',
+            'user_id' => $user->getKey(),
             'expires_at' => now()->subMinute()->timestamp,
         ]),
     ])->assertUnprocessable()->assertJsonValidationErrors('attachment_token');
 
     Storage::disk('s3')->assertExists('chat-attachments/report.pdf');
+    ChatAgent::assertNeverPrompted();
+});
+
+test('an attachment token cannot be used by another user', function () {
+    $owner = User::factory()->create();
+    $otherUser = User::factory()->create();
+    $this->actingAs($owner);
+
+    Storage::fake('s3');
+    ChatAgent::fake()->preventStrayPrompts();
+    $attachmentToken = null;
+
+    Livewire::test('chat-box')
+        ->set('attachment', UploadedFile::fake()->createWithContent('private.pdf', '%PDF-1.4 private'))
+        ->call('send')
+        ->assertDispatched('start-stream', function (string $event, array $parameters) use (&$attachmentToken): bool {
+            $attachmentToken = $parameters['attachmentToken'] ?? null;
+
+            return $event === 'start-stream' && is_string($attachmentToken);
+        });
+
+    $attachment = Crypt::decrypt($attachmentToken);
+    $this->actingAs($otherUser);
+
+    $this->postJson(route('chat.stream'), [
+        'message' => 'Read this private file',
+        'attachment_token' => $attachmentToken,
+    ])->assertUnprocessable()->assertJsonValidationErrors('attachment_token');
+
+    Storage::disk('s3')->assertExists($attachment['path']);
     ChatAgent::assertNeverPrompted();
 });
 

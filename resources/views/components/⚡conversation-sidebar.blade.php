@@ -1,18 +1,22 @@
 <?php
 
+use App\Services\TokenUsageSummary;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Number;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
 new class extends Component {
     public array $conversations = [];
     public ?string $activeConversationId = null;
+    public array $tokenUsage = [];
 
     public function mount(): void
     {
         $this->loadConversations();
+        $this->loadTokenUsage();
     }
 
     // Loading Conversations
@@ -41,6 +45,12 @@ new class extends Component {
         $this->activeConversationId = null;
 
         $this->dispatch('new-conversation');
+    }
+
+    #[On('usage-updated')]
+    public function loadTokenUsage(): void
+    {
+        $this->tokenUsage = app(TokenUsageSummary::class)->forUser(auth()->user());
     }
 
     public function logout(): void
@@ -152,7 +162,25 @@ new class extends Component {
 
     </div>
 
+    {{-- Personal token usage --}}
+    <div class="border-t border-zinc-800 px-4 py-3">
+        <p class="mb-2 px-1 text-[11px] font-medium uppercase tracking-wider text-zinc-600">Token usage</p>
 
+        <div class="grid gap-1.5">
+            @foreach (['day' => 'Today', 'week' => 'Week', 'month' => 'Month', 'year' => 'Year'] as $period => $label)
+                <div wire:key="usage-{{ $period }}" class="flex items-center justify-between gap-2 px-1 text-xs">
+                    <span class="text-zinc-500">{{ $label }}</span>
+                    <span class="whitespace-nowrap text-zinc-400"
+                        title="{{ number_format($tokenUsage[$period]['total_tokens'] ?? 0) }} total tokens">
+                        <span class="text-sky-400">{{ Number::abbreviate($tokenUsage[$period]['input_tokens'] ?? 0, precision: 1) }}</span>
+                        in ·
+                        <span class="text-violet-400">{{ Number::abbreviate($tokenUsage[$period]['output_tokens'] ?? 0, precision: 1) }}</span>
+                        out
+                    </span>
+                </div>
+            @endforeach
+        </div>
+    </div>
 
     {{-- User footer --}}
     <div class="border-t border-zinc-800 p-4">
