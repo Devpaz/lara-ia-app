@@ -18,16 +18,16 @@ test('authenticated users are redirected away from authentication pages', functi
     $this->get(route('register'))->assertRedirect(route('chat'));
 });
 
-test('a user can register with the allowed email domain', function () {
+test('a user can register with a valid email address', function () {
     Livewire::test('pages::auth.register')
         ->set('name', 'Ada Lovelace')
-        ->set('email', 'ADA@EXAMPLE.COM')
+        ->set('email', 'ADA@OTHER.TEST')
         ->set('password', 'password123')
         ->set('password_confirmation', 'password123')
         ->call('register')
         ->assertRedirectToRoute('chat');
 
-    $user = User::where('email', 'ada@example.com')->firstOrFail();
+    $user = User::where('email', 'ada@other.test')->firstOrFail();
 
     $this->assertAuthenticatedAs($user);
     expect($user->name)->toBe('Ada Lovelace');
@@ -57,20 +57,17 @@ test('registration validates the name length', function () {
         ->assertHasErrors(['name' => ['max']]);
 });
 
-test('registration validates email format and allowed domain', function (string $email, string $rule) {
+test('registration validates email format', function () {
     Livewire::test('pages::auth.register')
         ->set('name', 'Ada Lovelace')
-        ->set('email', $email)
+        ->set('email', 'not-an-email')
         ->set('password', 'password123')
         ->set('password_confirmation', 'password123')
         ->call('register')
-        ->assertHasErrors(['email' => [$rule]])
+        ->assertHasErrors(['email' => ['email']])
         ->assertSet('name', 'Ada Lovelace')
-        ->assertSet('email', strtolower($email));
-})->with([
-    'invalid format' => ['not-an-email', 'email'],
-    'different domain' => ['ada@other.test', 'ends_with'],
-]);
+        ->assertSet('email', 'not-an-email');
+});
 
 test('registration requires a unique email address', function () {
     User::factory()->create(['email' => 'ada@example.com']);

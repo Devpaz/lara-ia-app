@@ -45,3 +45,19 @@ test('users cannot open another users conversation', function () {
         'conversation_id' => $conversation->getKey(),
     ])->assertForbidden();
 });
+
+test('the sidebar displays the authenticated user and allows logging out', function () {
+    $user = User::factory()->create([
+        'name' => 'Ada Lovelace',
+        'email' => 'ada@example.com',
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('conversation-sidebar')
+        ->assertSee('Ada Lovelace')
+        ->assertSee('ada@example.com')
+        ->call('logout')
+        ->assertRedirectToRoute('login');
+
+    $this->assertGuest();
+});
