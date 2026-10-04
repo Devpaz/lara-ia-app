@@ -1,6 +1,7 @@
 <?php
 
 use App\Ai\Agents\ChatAgent;
+use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -8,6 +9,8 @@ use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 
 test('a chat upload stays available to subsequent turns', function () {
+    $this->actingAs(User::factory()->create());
+
     Storage::fake('s3');
     ChatAgent::fake(fn (string $prompt): string => $prompt === 'What did I upload?'
         ? 'The document is still available.'
@@ -54,6 +57,8 @@ test('a chat upload stays available to subsequent turns', function () {
 });
 
 test('the stream rejects an untrusted or expired attachment reference', function () {
+    $this->actingAs(User::factory()->create());
+
     Storage::fake('s3');
     Storage::disk('s3')->put('chat-attachments/report.pdf', '%PDF-1.4 test document');
     ChatAgent::fake()->preventStrayPrompts();
@@ -77,6 +82,8 @@ test('the stream rejects an untrusted or expired attachment reference', function
 });
 
 test('an uploaded image is stored as a reusable image attachment', function () {
+    $this->actingAs(User::factory()->create());
+
     Storage::fake('s3');
     ChatAgent::fake(['Image received.'])->preventStrayPrompts();
 
