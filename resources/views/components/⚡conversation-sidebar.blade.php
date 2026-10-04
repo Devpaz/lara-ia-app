@@ -1,6 +1,8 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Session;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -39,6 +41,16 @@ new class extends Component {
         $this->activeConversationId = null;
 
         $this->dispatch('new-conversation');
+    }
+
+    public function logout(): void
+    {
+        Auth::logout();
+
+        Session::invalidate();
+        Session::regenerateToken();
+
+        $this->redirectRoute('login', navigate: true);
     }
 
     // Delete Conversation
@@ -142,13 +154,28 @@ new class extends Component {
 
 
 
-    {{-- Status footer --}}
-    <div class="p-4 border-t border-zinc-800 space-y-2">
-        <div class="flex items-center gap-2 px-2 py-2 rounded-lg bg-zinc-800/60">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span class="text-xs text-zinc-400">Gemini 3.6 Flash </span>
-        </div>
+    {{-- User footer --}}
+    <div class="border-t border-zinc-800 p-4">
+        <div class="flex items-center gap-3 rounded-xl bg-zinc-800/60 p-3">
+            <div
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-600 text-xs font-semibold text-white">
+                {{ auth()->user()->initials() }}
+            </div>
 
-        <p class="text-xs text-zinc-600 px-2">Built with Laravel 13 AI SDK </p>
+            <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium text-white">{{ auth()->user()->name }}</p>
+                <p class="truncate text-xs text-zinc-500">{{ auth()->user()->email }}</p>
+            </div>
+
+            <button type="button" wire:click="logout" wire:loading.attr="disabled" wire:target="logout"
+                title="Log out" aria-label="Log out"
+                class="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-700 hover:text-red-400 disabled:cursor-wait disabled:opacity-50">
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M10 17l5-5-5-5m5 5H3m9-8h5a2 2 0 012 2v12a2 2 0 01-2 2h-5" />
+                </svg>
+            </button>
+        </div>
     </div>
 </aside>

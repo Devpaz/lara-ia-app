@@ -30,20 +30,9 @@ new class extends Component
                 'string',
                 'email',
                 'max:255',
-                'ends_with:@'.config('auth.registration.email_domain'),
                 'unique:'.User::class,
             ],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ];
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    protected function messages(): array
-    {
-        return [
-            'email.ends_with' => 'The email must use the @'.config('auth.registration.email_domain').' domain.',
         ];
     }
 
@@ -73,7 +62,7 @@ new class extends Component
                 L
             </div>
             <h1 class="text-2xl font-semibold text-white">Create your account</h1>
-            <p class="mt-2 text-sm text-zinc-400">Register with your {{ '@'.config('auth.registration.email_domain') }} email.</p>
+            <p class="mt-2 text-sm text-zinc-400">Register with a valid email address.</p>
         </div>
 
         <form wire:submit="register" class="flex flex-col gap-5">
