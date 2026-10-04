@@ -18,6 +18,11 @@ new class extends Component {
     // Load Messages
     public function loadMessages($conversationId): void
     {
+        abort_unless(
+            auth()->user()?->conversations()->whereKey($conversationId)->exists(),
+            403,
+        );
+
         $this->messages = DB::table('agent_conversation_messages')
             ->where('conversation_id', $conversationId)
             ->whereIn('role', ['user', 'assistant'])

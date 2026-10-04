@@ -21,7 +21,7 @@ new class extends Component {
             $this->activeConversationId = $conversationId;
         }
 
-        $this->conversations = DB::table('agent_conversations')
+        $this->conversations = auth()->user()->conversations()
             ->latest('updated_at')
             ->limit(20)
             ->get()
@@ -45,11 +45,11 @@ new class extends Component {
     public function deleteConversation(string $conversationId): void
     {
         $wasActiveConversation = $this->activeConversationId === $conversationId;
+        $conversation = auth()->user()->conversations()->findOrFail($conversationId);
 
-        DB::transaction(function () use ($conversationId) {
-            DB::table('agent_conversation_messages')->where('conversation_id', $conversationId)->delete();
-
-            DB::table('agent_conversations')->where('id', $conversationId)->delete();
+        DB::transaction(function () use ($conversation) {
+            $conversation->messages()->delete();
+            $conversation->delete();
         });
 
         if ($wasActiveConversation) {
