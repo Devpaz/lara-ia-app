@@ -28,6 +28,11 @@ class StreamController extends Controller
         $message = $request->input('message') ?? '';
         $conversationId = $request->input('conversation_id');
         $attachment = null;
+        $participant = $request->user();
+
+        if ($conversationId !== null) {
+            abort_unless($participant->conversations()->whereKey($conversationId)->exists(), 403);
+        }
 
         if ($request->filled('attachment_token')) {
             try {
@@ -48,11 +53,10 @@ class StreamController extends Controller
             }
         }
 
-        return response()->stream(function () use ($message, $conversationId, $attachment) {
+        return response()->stream(function () use ($message, $conversationId, $attachment, $participant) {
 
             try {
                 $agent = new ChatAgent;
-                $participant = (object) ['id' => 'guest'];
 
                 if ($conversationId) {
                     $agent->continue($conversationId, $participant);

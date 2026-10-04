@@ -12,9 +12,11 @@ use Laravel\Ai\Contracts\HasTools;
 use Laravel\Ai\Contracts\Tool;
 use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\Promptable;
+use Laravel\Ai\Attributes\Model;
 use Stringable;
 
 #[MaxSteps(2)]
+#[Model('gemini-3.6-flash')]
 class ChatAgent implements Agent, Conversational, HasTools
 {
     use Promptable, RemembersConversations;
